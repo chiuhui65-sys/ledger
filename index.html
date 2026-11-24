@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>我的記帳本</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--text:#222;--muted:#777;--line:#e5e7eb;--inc:#16a34a;--exp:#dc2626;--pri:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b2027;--text:#eee;--muted:#9aa3ad;--line:#2d343d;--inc:#4ade80;--exp:#f87171;--pri:#60a5fa}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Microsoft JhengHei",system-ui,sans-serif}
+.wrap{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:4px 0 12px}
+.card{background:var(--card);border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.sum small{color:var(--muted);display:block}
+.sum b{font-size:20px}
+.inc{color:var(--inc)}.exp{color:var(--exp)}
+form{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+form .full{grid-column:1/-1}
+input,select,button{font:inherit;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);width:100%}
+button{background:var(--pri);color:#fff;border:0;cursor:pointer}
+button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);width:auto;padding:4px 10px}
+.type{display:flex;gap:8px}
+.type label{flex:1;text-align:center;padding:9px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.type input{display:none}
+.type input:checked+span{font-weight:700}
+.type label:has(input:checked){border-color:var(--pri);background:color-mix(in srgb,var(--pri) 12%,transparent)}
+.row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}
+.row .info{flex:1;min-width:0}
+.row .info small{color:var(--muted)}
+.row .amt{font-weight:700}
+.bar{height:8px;border-radius:4px;background:var(--exp);opacity:.75}
+.cat{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px}
+.cat .n{width:64px}.cat .t{flex:1}.cat .v{width:80px;text-align:right}
+.top{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.top input{flex:1}
+.top button{width:auto}
+.empty{text-align:center;color:var(--muted);padding:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>💰 我的記帳本</h1>
+
+  <div class="top">
+    <input type="month" id="month">
+    <button id="csv" class="ghost">匯出 CSV</button>
+  </div>
+
+  <div class="card sum">
+    <div><small>收入</small><b class="inc" id="sInc">0</b></div>
+    <div><small>支出</small><b class="exp" id="sExp">0</b></div>
+    <div><small>結餘</small><b id="sBal">0</b></div>
+  </div>
+
+  <div class="card">
+    <form id="f">
+      <div class="type full">
+        <label><input type="radio" name="type" value="exp" checked><span>支出</span></label>
+        <label><input type="radio" name="type" value="inc"><span>收入</span></label>
+      </div>
+      <input type="number" id="amount" placeholder="金額" min="0" step="any" required>
+      <input type="date" id="date" required>
+      <select id="cat"></select>
+      <input type="text" id="note" placeholder="備註（選填）">
+      <button class="full" type="submit">新增記錄</button>
+    </form>
+  </div>
+
+  <div class="card" id="catCard">
+    <b>本月支出分類</b>
+    <div id="cats"></div>
+  </div>
+
+  <div class="card">
+    <b>明細</b>
+    <div id="list"></div>
+  </div>
+</div>
+
+<script>
+const CATS={exp:["餐飲","交通","購物","娛樂","居住","醫療","教育","其他"],inc:["薪資","獎金","投資","其他"]};
+const KEY="ledger.v1";
+let data=[];
+try{data=JSON.parse(localStorage.getItem(KEY))||[]}catch(e){}
+const $=id=>document.getElementById(id);
+const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){}};
+const today=new Date();
+const pad=n=>String(n).padStart(2,"0");
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+$("date").value=ymd(today);
+$("month").value=ymd(today).slice(0,7);
+const fmt=n=>n.toLocaleString("zh-TW",{maximumFractionDigits:2});
+const curType=()=>document.querySelector('input[name=type]:checked').value;
+
+function fillCats(){
+  $("cat").innerHTML=CATS[curType()].map(c=>`<option>${c}</option>`).join("");
+}
+document.querySelectorAll('input[name=type]').forEach(r=>r.onchange=fillCats);
+fillCats();
+
+$("f").onsubmit=e=>{
+  e.preventDefault();
+  const amount=parseFloat($("amount").value);
+  if(!(amount>0))return;
+  data.push({id:Date.now(),type:curType(),amount,date:$("date").value,cat:$("cat").value,note:$("note").value.trim()});
+  save();
+  $("amount").value="";$("note").value="";
+  $("month").value=$("date").value.slice(0,7);
+  render();
+};
+$("month").onchange=render;
+
+function esc(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+function render(){
+  const m=$("month").value;
+  const items=data.filter(d=>d.date.startsWith(m)).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+  const inc=items.filter(d=>d.type==="inc").reduce((s,d)=>s+d.amount,0);
+  const exp=items.filter(d=>d.type==="exp").reduce((s,d)=>s+d.amount,0);
+  $("sInc").textContent=fmt(inc);
+  $("sExp").textContent=fmt(exp);
+  const bal=inc-exp;
+  $("sBal").textContent=fmt(bal);
+  $("sBal").className=bal>=0?"inc":"exp";
+
+  const by={};
+  items.filter(d=>d.type==="exp").forEach(d=>by[d.cat]=(by[d.cat]||0)+d.amount);
+  const ents=Object.entries(by).sort((a,b)=>b[1]-a[1]);
+  $("catCard").style.display=ents.length?"":"none";
+  $("cats").innerHTML=ents.map(([c,v])=>`<div class="cat"><span class="n">${c}</span><span class="t"><div class="bar" style="width:${v/exp*100}%"></div></span><span class="v">${fmt(v)}</span></div>`).join("");
+
+  $("list").innerHTML=items.length?items.map(d=>`
+    <div class="row">
+      <div class="info"><div>${d.cat}${d.note?" · "+esc(d.note):""}</div><small>${d.date}</small></div>
+      <div class="amt ${d.type}">${d.type==="inc"?"+":"-"}${fmt(d.amount)}</div>
+      <button class="ghost" onclick="del(${d.id})">刪除</button>
+    </div>`).join(""):'<div class="empty">這個月還沒有記錄</div>';
+}
+function del(id){
+  if(!confirm("確定刪除這筆記錄？"))return;
+  data=data.filter(d=>d.id!==id);save();render();
+}
+$("csv").onclick=()=>{
+  const rows=[["日期","類型","分類","金額","備註"],...data.sort((a,b)=>a.date.localeCompare(b.date)).map(d=>[d.date,d.type==="inc"?"收入":"支出",d.cat,d.amount,d.note])];
+  const csv="﻿"+rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download="記帳本.csv";a.click();
+};
+render();
+</script>
+</body>
+</html>
