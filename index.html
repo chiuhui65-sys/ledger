@@ -10,11 +10,16 @@
   --bg:#f3f5f4;--card:#ffffff;--fg:#1d2422;--muted:#6b7773;--line:#dde3e0;
   --accent:#1f6f5c;--inc:#1b7a43;--exp:#c2410c;
   --font:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+  --t-sum:#e4f1ec;--t-inc:#dcefe3;--t-exp:#fbe8dc;--t-bal:#e2ebf5;
+  --t-acc:#e6f0e9;--t-form:#e5eef6;--t-cat:#fbeee0;--t-list:#ffffff;--t-led:#eceaf6;--t-bak:#eef0ee;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){:root{
   --bg:#121816;--card:#1a2220;--fg:#e8eeec;--muted:#93a19c;--line:#2b3633;
-  --accent:#4cc3a4;--inc:#5fd38b;--exp:#fb923c;color-scheme:dark}}
+  --accent:#4cc3a4;--inc:#5fd38b;--exp:#fb923c;
+  --t-sum:#1b2b27;--t-inc:#1a2e24;--t-exp:#33241b;--t-bal:#1c2733;
+  --t-acc:#1b2a22;--t-form:#1b2733;--t-cat:#2f2519;--t-list:#1a2220;--t-led:#25223a;--t-bak:#212623;
+  color-scheme:dark}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0}
@@ -38,7 +43,16 @@ button:disabled{opacity:.5;cursor:default}
 .tabs button{padding:8px 14px;font-weight:700}
 .tabs button[aria-pressed="true"]{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .filters{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center;background:none;border:0;padding:0}
+.sum>div{border-radius:12px;padding:12px 6px}
+.sum>div:nth-child(1){background:var(--t-inc)}
+.sum>div:nth-child(2){background:var(--t-exp)}
+.sum>div:nth-child(3){background:var(--t-bal)}
+.c-acc{background:var(--t-acc)}.c-form{background:var(--t-form)}.c-cat{background:var(--t-cat)}
+.c-list{background:var(--t-list)}.c-led{background:var(--t-led)}.c-bak{background:var(--t-bak)}
+.card{border-color:transparent;border-radius:14px}
+.c-list{border-color:var(--line)}
+.tabs button{border-radius:20px}
 .sum small{display:block;color:var(--muted)}
 .sum b{font-size:19px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .inc{color:var(--inc)}.exp{color:var(--exp)}
@@ -112,7 +126,7 @@ textarea{width:100%;height:100px;font-size:13px}
       <div><small>結餘</small><b id="sBal">0</b></div>
     </div>
 
-    <div class="card">
+    <div class="card c-acc">
       <div class="accTop"><h2>帳戶</h2><span class="note">總資產 <b id="accTotal">0</b></span></div>
       <div id="accs"></div>
       <div class="msg" id="accMsg"></div>
@@ -127,7 +141,7 @@ textarea{width:100%;height:100px;font-size:13px}
       </details>
     </div>
 
-    <div class="card">
+    <div class="card c-form">
       <form id="f">
         <div class="type full">
           <label><input type="radio" name="type" value="exp" checked>支出</label>
@@ -151,10 +165,10 @@ textarea{width:100%;height:100px;font-size:13px}
       </form>
     </div>
 
-    <div class="card" id="catCard"><h2>本月支出分類</h2><div id="cats"></div></div>
-    <div class="card"><h2>明細</h2><div id="list"></div></div>
+    <div class="card c-cat" id="catCard"><h2>本月支出分類</h2><div id="cats"></div></div>
+    <div class="card c-list"><h2>明細</h2><div id="list"></div></div>
 
-    <div class="card">
+    <div class="card c-led">
       <h2>帳本</h2>
       <div id="inviteBox"></div>
       <details>
@@ -169,7 +183,7 @@ textarea{width:100%;height:100px;font-size:13px}
       </details>
     </div>
 
-    <div class="card">
+    <div class="card c-bak">
       <h2>備份</h2>
       <button class="small" id="csv" type="button">複製目前帳本記錄（CSV）</button>
       <div id="csvOut"></div>
@@ -244,8 +258,21 @@ async function boot(){
     await liff.init({liffId:CONFIG.LIFF_ID});
     if(!liff.isLoggedIn()){liff.login();return}
   }catch(e){$("status").textContent="LINE 登入初始化失敗，請從 LINE 或正確的網址開啟。";return}
+  // 先用手機裡上次的資料秒開畫面，同時向雲端要最新的
+  let guess=null;
+  try{
+    const s=JSON.parse(localStorage.getItem("lc2")||"null");
+    if(s&&s.me&&s.ledgers&&s.ledgers.length){
+      me=s.me;ledgers=s.ledgers;Object.assign(lcache,s.lc||{});
+      cur=ledgers.some(l=>l.id===s.cur)?s.cur:ledgers[0].id;guess=cur;
+      $("whoami").textContent=me.name;$("status").hidden=true;$("app").hidden=false;
+      if(lcache[cur])applyLedger(lcache[cur]);else renderTabs();
+    }
+  }catch(e){me=null;ledgers=[];cur=null;guess=null}
+  const pre=guess?api("getLedger",{ledgerId:guess}).catch(()=>null):null;
   await run(async()=>{
     const r=await api("me");
+    if(me&&me.id&&r.user.id&&me.id!==r.user.id){for(const k in lcache)delete lcache[k];cur=null;guess=null;$("app").hidden=true}
     me=r.user;ledgers=r.ledgers;
     $("whoami").textContent=me.name;
     const code=joinCodeFromUrl();
@@ -260,9 +287,10 @@ async function boot(){
     $("status").hidden=true;
     if(!ledgers.length){$("welcome").hidden=false;return}
     let saved=null;try{saved=localStorage.getItem("cur")}catch(e){}
-    if(!cur)cur=ledgers.some(l=>l.id===saved)?saved:ledgers[0].id;
+    if(!cur||!ledgers.some(l=>l.id===cur))cur=ledgers.some(l=>l.id===saved)?saved:ledgers[0].id;
     $("app").hidden=false;
-    await loadLedger();
+    const first=(pre&&cur===guess)?await pre:null;
+    await loadLedger(first||undefined);
   });
 }
 function joinCodeFromUrl(){
@@ -271,12 +299,24 @@ function joinCodeFromUrl(){
   if(!c){const st=q.get("liff.state");if(st){const m=/join=([A-Za-z0-9]+)/.exec(st);if(m)c=m[1]}}
   return c?c.toUpperCase():null;
 }
-async function loadLedger(){
+const lcache={};
+function applyLedger(c){accs=c.accounts;data=c.records;fillAccSelects();onType();render()}
+function saveCache(){
+  try{
+    const lc={};
+    for(const k in lcache)lc[k]={accounts:lcache[k].accounts,records:lcache[k].records.map(r=>({...r,thumb:""}))};
+    localStorage.setItem("lc2",JSON.stringify({me,ledgers,cur,lc}));
+  }catch(e){}
+}
+async function loadLedger(pre){
   try{localStorage.setItem("cur",cur)}catch(e){}
   adjFor=null;
-  const r=await api("getLedger",{ledgerId:cur});
-  accs=r.accounts;data=r.records;
-  fillAccSelects();onType();render();
+  const id=cur;
+  if(lcache[id])applyLedger(lcache[id]);          // 先秒開上次的資料
+  const r=pre||await api("getLedger",{ledgerId:id});
+  lcache[id]=r;
+  if(cur===id){applyLedger(r)}                     // 再換成最新的
+  saveCache();
 }
 
 /* ---------- 帳本切換、建立、邀請 ---------- */
@@ -288,7 +328,9 @@ function renderTabs(){
 }
 $("tabs").onclick=e=>{
   const b=e.target.closest("[data-led]");if(!b||b.dataset.led===cur)return;
-  cur=b.dataset.led;run(loadLedger);
+  cur=b.dataset.led;
+  if(lcache[cur]){adjFor=null;applyLedger(lcache[cur])}   // 立刻切換
+  run(loadLedger);                                        // 背景更新
 };
 $("inviteBox").onclick=e=>{
   if(!e.target.closest("#invBtn"))return;
@@ -487,6 +529,7 @@ $("list").addEventListener("click",e=>{const b=e.target.closest("[data-del]");if
 
 /* ---------- 畫面 ---------- */
 function render(){
+  if(cur&&lcache[cur]){lcache[cur]={accounts:accs,records:data};clearTimeout(render.t);render.t=setTimeout(saveCache,400)}
   renderTabs();renderAccs();
   $("submitBtn").textContent="新增到"+(ledger()?ledger().name:"");
   const f=$("accFilter").value||"all",m=$("month").value;
